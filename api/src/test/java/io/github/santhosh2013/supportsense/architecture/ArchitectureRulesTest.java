@@ -60,12 +60,20 @@ class ArchitectureRulesTest {
     @Test
     @DisplayName("web layer never touches persistence directly")
     void webDoesNotDependOnPersistence() {
+        // Scoped to @Entity classes specifically, not the whole ..persistence.. package —
+        // enums (TicketStatus, TicketEventType, ...) are shared vocabulary between layers
+        // and are exactly what response DTOs are meant to carry. Only entities must never
+        // leak through a controller.
         ArchRule rule = noClasses()
                 .that()
                 .resideInAPackage("..web..")
                 .should()
-                .dependOnClassesThat()
-                .resideInAPackage("..persistence..")
+                .dependOnClassesThat(
+                        com.tngtech.archunit.base.DescribedPredicate
+                                .describe(
+                                        "reside in ..persistence.. and are annotated with @Entity",
+                                        clazz -> clazz.getPackageName().contains(".persistence")
+                                                && clazz.isAnnotatedWith(jakarta.persistence.Entity.class)))
                 .because("entities must never be exposed from a controller")
                 .allowEmptyShould(true);
 
@@ -101,6 +109,22 @@ class ArchitectureRulesTest {
                 .haveSimpleNameEndingWith("DuplicateLink")
                 .because("A1 scopes these entities as persistence-only: no service, "
                         + "no endpoint, no business logic until A2/A5")
+                .allowEmptyShould(true);
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    @DisplayName("only TicketService reads tickets — BR-A10 visibility must not be bypassed")
+    void onlyTicketServiceQueriesTicketRepository() {
+        ArchRule rule = noClasses()
+                .that()
+                .resideOutsideOfPackages("..ticket.app..", "..ticket.persistence..")
+                .should()
+                .dependOnClassesThat()
+                .haveSimpleName("TicketRepository")
+                .because("BR-A10 visibility filtering is composed once in TicketService via "
+                        + "TicketSpecifications.visibleTo — any other caller risks bypassing it")
                 .allowEmptyShould(true);
 
         rule.check(productionClasses);
