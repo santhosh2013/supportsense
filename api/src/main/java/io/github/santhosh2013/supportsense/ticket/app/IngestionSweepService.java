@@ -8,6 +8,7 @@ import io.github.santhosh2013.supportsense.ticket.persistence.Ticket;
 import io.github.santhosh2013.supportsense.ticket.persistence.TicketRepository;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.RejectedExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -51,20 +52,23 @@ public class IngestionSweepService {
     }
 
     /**
-     * Claims and redispatches PENDING rows — recovers rows dropped by a restart or an
-     * executor rejection. Claim and dispatch are deliberately separate steps: the claim
-     * commits on its own (see {@link TicketRepository#claimForProcessing}) before dispatch
-     * is even attempted, so a slow dispatch never holds the claim's transaction open.
+     * Redispatches a bounded batch of PENDING rows. The worker owns the conditional claim:
+     * claiming before executor submission creates a stranded PROCESSING row if submission
+     * is rejected. Keeping the row PENDING until the worker begins means rejection is
+     * recoverable on the next sweep, as ADR-0015 requires.
      */
     @Scheduled(initialDelay = 0, fixedDelay = 60_000)
     public void sweep() {
         List<Long> pendingIds = ticketRepository.findPendingIdsOrderByCreatedAt(PageRequest.of(0, SWEEP_BATCH_SIZE));
 
         for (Long ticketId : pendingIds) {
-            int claimed = ticketRepository.claimForProcessing(ticketId, timeSource.now());
-            if (claimed == 1) {
-                metrics.incrementSweepRedispatched();
+            try {
                 dispatchPort.dispatch(ticketId);
+                metrics.incrementSweepRedispatched();
+            } catch (RejectedExecutionException e) {
+                // Leave the row PENDING. It was never claimed, so the next sweep can retry.
+                metrics.incrementQueueRejected();
+                log.info("Ingestion executor saturated while sweeping ticket {}; will retry", ticketId);
             }
         }
     }
