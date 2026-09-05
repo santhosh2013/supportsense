@@ -21,9 +21,24 @@ jobs:
           cache: maven
 
       - name: Secret scan (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Runs the CLI directly against the full checked-out history rather than the
+        # gitleaks-action wrapper, which only diffs the push's before/after SHAs — that
+        # range is unresolvable on a repo whose remote history was replaced (e.g. the
+        # first push over a GitHub-initialised README), and it also does not satisfy
+        # FR-9's "must scan full history, not just the diff" requirement.
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz \
+            | tar -xz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --redact -v --exit-code=1 \
+            --report-format=sarif --report-path=gitleaks-results.sarif
+
+      - name: Upload gitleaks report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-results
+          path: gitleaks-results.sarif
+          if-no-files-found: ignore
 
       - name: Build, unit + integration tests, merged coverage
         working-directory: api
