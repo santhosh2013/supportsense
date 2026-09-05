@@ -164,12 +164,16 @@ class AuthFlowIT {
                         + "'account-login-access','account-provisioning','api-integration-error',"
                         + "'data-import-export','performance-latency','bug-report')",
                 Integer.class);
-        Integer adminCount =
-                jdbc.queryForObject("SELECT count(*) FROM users WHERE role = 'ADMIN'", Integer.class);
+        Integer seededAdminCount = jdbc.queryForObject(
+                "SELECT count(*) FROM users WHERE email = 'admin@supportsense.local' AND role = 'ADMIN'",
+                Integer.class);
 
         assertThat(seededTeamCount).isEqualTo(5);
         assertThat(seededCategoryCount).isEqualTo(10);
-        assertThat(adminCount).isEqualTo(1);
+        // Method-security tests legitimately promote isolated fixture users to ADMIN. The
+        // seed invariant is that this specific bootstrap admin exists, not that it remains
+        // the only ADMIN row in a database shared by every integration-test class.
+        assertThat(seededAdminCount).isEqualTo(1);
     }
 
     private String url(String path) {
