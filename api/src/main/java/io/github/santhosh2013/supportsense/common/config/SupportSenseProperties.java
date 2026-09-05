@@ -1,7 +1,10 @@
 package io.github.santhosh2013.supportsense.common.config;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import java.time.Duration;
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -9,7 +12,10 @@ import org.springframework.validation.annotation.Validated;
 
 @Validated
 @ConfigurationProperties(prefix = "supportsense")
-public record SupportSenseProperties(Security security, Ingestion ingestion, PreScreen preScreen) {
+public record SupportSenseProperties(
+        @NotNull @Valid Security security,
+        @NotNull @Valid Ingestion ingestion,
+        @NotNull @Valid PreScreen preScreen) {
 
     public record Security(
             String jwtSecret,
@@ -30,5 +36,5 @@ public record SupportSenseProperties(Security security, Ingestion ingestion, Pre
      * Terms are matched case-insensitively with word boundaries, never as substrings —
      * substring matching flags "sue" inside "issue".
      */
-    public record PreScreen(@NotEmpty List<String> terms) {}
+        public record PreScreen(@NotEmpty List<@NotBlank String> terms) {}
 }

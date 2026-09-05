@@ -17,6 +17,6 @@ Written as decisions are made, never retrospectively. Superseded ADRs are marked
 | [0010](0010-package-by-feature.md) | Package by feature, not by layer | Accepted |
 | [0011](0011-persist-first-ingestion.md) | Persist-first ingestion with sweep and reaper | Accepted |
 | [0012](0012-ingestion-state-separate-from-status.md) | `ingestion_state` separate from business `status` | Accepted |
-| 0013 | Pure domain core enforced by ArchUnit + injected clock | Pending (Batch 4) |
-| 0014 | JaCoCo merged unit + integration coverage | Pending (Batch 1, doc pending) |
+| [0013](0013-pure-domain-core-and-injected-clock.md) | Pure domain core enforced by ArchUnit + injected clock | Accepted |
+| [0014](0014-merged-jacoco-coverage.md) | JaCoCo merged unit + integration coverage | Accepted |
 | [0015](0015-rejection-returns-202.md) | Rejection returns 202 + counter | Accepted (supersedes 0002) |

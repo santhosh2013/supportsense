@@ -5,9 +5,8 @@
 ## Context
 
 The development machine has no Docker runtime available (`docker ps` fails with
-`CommandNotFoundException`), and Docker Desktop may be blocked by corporate licensing
-policy. Sheet 01's non-negotiables require Testcontainers, never H2, for behavioural
-fidelity with production Postgres.
+`CommandNotFoundException`). Sheet 01's non-negotiables require Testcontainers, never H2,
+for behavioural fidelity with production Postgres.
 
 ## Decision
 

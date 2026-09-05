@@ -49,11 +49,11 @@ cd ..\api
 .\mvnw spring-boot:run "-Dspring-boot.run.profiles=local"
 ```
 
-### Corporate proxy notes
+### Proxy notes
 
-If Docker Desktop is installed behind a corporate proxy, configure the daemon's proxy
-settings under **Settings → Resources → Proxies** (or the equivalent `daemon.json` entry),
-and set `HTTP_PROXY` / `HTTPS_PROXY` for the Maven Wrapper if dependency downloads fail:
+If Docker Desktop is installed behind a network proxy, configure the daemon's proxy settings
+under **Settings → Resources → Proxies** (or the equivalent `daemon.json` entry), and set
+`HTTP_PROXY` / `HTTPS_PROXY` for the Maven Wrapper if dependency downloads fail:
 
 ```powershell
 $env:MAVEN_OPTS = "-Dhttp.proxyHost=<proxy> -Dhttp.proxyPort=<port>"
@@ -83,6 +83,42 @@ See `.github/artifactory/supportsense-a1-design.md` for the full design and
   restart or a rejected task never loses work (ADR-0011)
 - **Team isolation:** enforced once, in the repository layer, for every ticket read
   (ADR-0006)
+
+```mermaid
+flowchart LR
+    Client[Authenticated caller] --> API[Ticket API]
+    API --> Insert[REQUIRES_NEW insert]
+    Insert --> DB[(PostgreSQL 16)]
+    Insert -->|AFTER_COMMIT| Worker[Bounded async worker]
+    Worker -->|conditional claim| DB
+    Sweep[60s sweep] -->|submit PENDING IDs| Worker
+    Reaper[60s reaper] -->|recover stale PROCESSING| DB
+    Worker -->|A2| Triage[LLM classification]
+    PreScreen[Config-driven pre-screen] -->|blocks before LLM| Triage
+```
+
+## Business-rule test coverage
+
+| Rule | Enforcement | Covering test |
+|---|---|---|
+| BR-A01 | Persist-first async dispatch, bounded executor, sweep/reaper | `TicketIngestionAfterCommitIT`, `IngestionRejectionIT`, `IngestionClaimConcurrencyIT`, `IngestionReaperIT` |
+| BR-A02 | PostgreSQL `ux_ticket_external_ref` | `TicketIdempotencyConcurrencyIT`, `SchemaConstraintsIT` |
+| BR-A09 | Pure lifecycle transition map | `TicketStatusTransitionsTest` |
+| BR-A10 | Repository `TicketSpecifications.visibleTo` predicate; 404 for inaccessible tickets | `TicketVisibilityIT`, `TicketApiSecurityIT` |
+| BR-A12 foundation | Versioned classpath prompt resources | `PromptResourceLoaderTest` |
+| Sensitive-topic guard foundation | Configured whole-word pre-screen OR category block | `PreScreenMatcherTest`, `AutoAnswerGateTest` |
+
+## Not yet implemented — A2 scope
+
+- Live LLM classification through Spring AI structured output
+- Persisting classification confidence and `TriageResult`
+- Confidence calibration and confusion-matrix analytics
+- Runtime abstention based on classification confidence, retrieval similarity, and customer tier
+- Human triage queue and downstream resolution drafting
+
+The A1 pre-screen is intentionally a pure, configuration-driven foundation. It blocks
+sensitive terms before any downstream continuation can run, but does not call a model or
+write triage outcomes until A2.
 
 ## Non-negotiables
 
