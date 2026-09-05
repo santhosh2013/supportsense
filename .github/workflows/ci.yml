@@ -59,7 +59,9 @@ jobs:
         uses: dorny/test-reporter@v1
         with:
           name: Surefire & Failsafe results
-          path: "api/target/surefire-reports/*.xml,api/target/failsafe-reports/*.xml"
+          # TEST-*.xml excludes failsafe-summary.xml, which is not a JUnit report and
+          # crashes the parser if matched by a bare *.xml glob.
+          path: "api/target/surefire-reports/TEST-*.xml,api/target/failsafe-reports/TEST-*.xml"
           reporter: java-junit
           fail-on-error: false
 

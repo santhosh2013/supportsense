@@ -63,6 +63,15 @@ public class GlobalExceptionHandler {
         return create(HttpStatus.FORBIDDEN, "Access denied", "access-denied");
     }
 
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ProblemDetail handleResponseStatus(org.springframework.web.server.ResponseStatusException exception) {
+        // Without this handler, the catch-all below silently downgrades every deliberate
+        // 4xx (e.g. AuthService's 409 on duplicate email) into a 500.
+        log.debug("Response status exception", exception);
+        HttpStatus status = HttpStatus.valueOf(exception.getStatusCode().value());
+        return create(status, exception.getReason(), "response-status");
+    }
+
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleUnexpected(Exception exception) {
         log.error("Unhandled exception", exception);

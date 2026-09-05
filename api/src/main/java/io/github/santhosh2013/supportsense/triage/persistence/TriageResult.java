@@ -17,6 +17,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
+import org.hibernate.annotations.CreationTimestamp;
 
 /**
  * PERSISTENCE-ONLY in milestone A1 — no service class, no REST endpoint, no business logic
@@ -72,6 +73,7 @@ public class TriageResult {
     @Column(name = "abstention_reason", nullable = false)
     private AbstentionReason abstentionReason = AbstentionReason.NONE;
 
+    @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

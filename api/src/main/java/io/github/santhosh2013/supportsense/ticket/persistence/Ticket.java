@@ -14,6 +14,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
+import org.hibernate.annotations.CreationTimestamp;
 
 /**
  * The central entity. Two independent state machines live here by design (ADR-0012):
@@ -103,11 +104,13 @@ public class Ticket {
     @Column(name = "sla_due_at")
     private Instant slaDueAt;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt;
-
     @Column(name = "first_response_at")
     private Instant firstResponseAt;
+
+    // Same footgun as User.createdAt: Hibernate's explicit NULL would override the DB default.
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
 
     @Version
     private int version;

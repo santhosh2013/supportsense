@@ -13,6 +13,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import org.hibernate.annotations.CreationTimestamp;
 
 @Entity
 @Table(name = "users")
@@ -42,6 +43,9 @@ public class User {
     @Column(nullable = false)
     private boolean active = true;
 
+    // Hibernate always includes mapped columns in the INSERT, which overrides the DB's
+    // own DEFAULT now() with an explicit NULL unless the field is populated here.
+    @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

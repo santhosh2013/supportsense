@@ -10,6 +10,7 @@ import io.github.santhosh2013.supportsense.auth.web.RefreshRequest;
 import io.github.santhosh2013.supportsense.auth.web.RegisterRequest;
 import io.github.santhosh2013.supportsense.support.PostgresTestContainer;
 import javax.sql.DataSource;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -20,6 +21,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 @Tag("integration")
@@ -32,6 +34,18 @@ class AuthFlowIT {
 
     @Autowired
     private TestRestTemplate restTemplate;
+
+    @BeforeEach
+    void disableRequestStreaming() {
+        // The JDK's default streaming HttpURLConnection cannot retry/re-read the response
+        // body once the server returns a 4xx before the request body finishes writing —
+        // it throws HttpRetryException("cannot retry due to server authentication, in
+        // streaming mode"). Disabling output streaming buffers the body first, which is
+        // fine at test scale and lets 401/409 responses be read normally.
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setOutputStreaming(false);
+        restTemplate.getRestTemplate().setRequestFactory(factory);
+    }
 
     @Autowired
     private DataSource dataSource;
