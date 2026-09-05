@@ -97,15 +97,19 @@ class TicketApiSecurityIT {
     @Test
     @DisplayName("an agent's ticket list excludes untriaged tickets and other teams' tickets")
     void listExcludesInvisibleTickets() {
+        // Uses fresh, uniquely-named teams rather than the shared seed teams: @SpringBootTest
+        // does not roll back between test methods, so any ticket another test method wrote
+        // into billing-ops/platform-support would still be visible here and inflate the
+        // count — this is a test-isolation concern, not a BR-A10 violation.
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
-        long billingTeamId = teamId(jdbc, "billing-ops");
-        long platformTeamId = teamId(jdbc, "platform-support");
+        long ownTeamId = createTeam(jdbc, "list-own-" + System.nanoTime());
+        long otherTeamId = createTeam(jdbc, "list-other-" + System.nanoTime());
 
         String agentEmail = "agent-list-" + System.nanoTime() + "@example.com";
-        String accessToken = registerAndGetAccessToken(agentEmail, "billing-ops");
+        String accessToken = registerAndGetAccessTokenForTeam(agentEmail, ownTeamId);
 
-        long visibleTicketId = insertTicket(jdbc, "ext-list-visible-" + System.nanoTime(), billingTeamId);
-        insertTicket(jdbc, "ext-list-other-team-" + System.nanoTime(), platformTeamId);
+        long visibleTicketId = insertTicket(jdbc, "ext-list-visible-" + System.nanoTime(), ownTeamId);
+        insertTicket(jdbc, "ext-list-other-team-" + System.nanoTime(), otherTeamId);
         insertTicket(jdbc, "ext-list-untriaged-" + System.nanoTime(), null);
 
         HttpHeaders headers = new HttpHeaders();
@@ -124,7 +128,10 @@ class TicketApiSecurityIT {
     private String registerAndGetAccessToken(String email, String teamSlug) {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         long teamId = teamId(jdbc, teamSlug);
+        return registerAndGetAccessTokenForTeam(email, teamId);
+    }
 
+    private String registerAndGetAccessTokenForTeam(String email, long teamId) {
         ResponseEntity<AuthResponse> registerResponse = restTemplate.postForEntity(
                 url("/api/auth/register"),
                 new RegisterRequest(email, "correct-horse-battery-staple", "Test Agent", teamId),
@@ -142,6 +149,12 @@ class TicketApiSecurityIT {
     private long teamId(JdbcTemplate jdbc, String slug) {
         return jdbc.queryForObject("SELECT id FROM teams WHERE slug = ?", Long.class, slug);
     }
+
+    private long createTeam(JdbcTemplate jdbc, String slug) {
+        jdbc.update("INSERT INTO teams (name, slug) VALUES (?, ?)", slug, slug);
+        return jdbc.queryForObject("SELECT id FROM teams WHERE slug = ?", Long.class, slug);
+    }
+
 
     private long insertTicket(JdbcTemplate jdbc, String externalRef, Long teamId) {
         jdbc.update(
