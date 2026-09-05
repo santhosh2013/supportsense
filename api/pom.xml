@@ -108,6 +108,12 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Polling assertions for async/eventual-consistency tests (AFTER_COMMIT dispatch). -->
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!--
           The JDK's HttpURLConnection has hardcoded internal retry logic for 401/407
           responses that throws HttpRetryException when the request body is streamed —
