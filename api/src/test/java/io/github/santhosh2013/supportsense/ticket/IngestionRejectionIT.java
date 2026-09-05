@@ -3,6 +3,9 @@ package io.github.santhosh2013.supportsense.ticket;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.github.santhosh2013.supportsense.auth.web.AuthResponse;
+import io.github.santhosh2013.supportsense.auth.web.RegisterRequest;
 import io.github.santhosh2013.supportsense.support.PostgresTestContainer;
 import io.github.santhosh2013.supportsense.ticket.persistence.TicketChannel;
 import io.github.santhosh2013.supportsense.ticket.web.CreateTicketRequest;
@@ -25,6 +28,9 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
@@ -38,7 +44,11 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
  * this behaviour; this test deliberately fills the executor with a latch-blocked task first.
  */
 @Tag("integration")
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        // AsyncConfig already defines 'ingestionExecutor'; TinyExecutorConfig deliberately
+        // replaces it with a core=1/max=1/queue=1 pool so saturation is actually reachable.
+        properties = "spring.main.allow-bean-definition-overriding=true")
 @Import({PostgresTestContainer.class, IngestionRejectionIT.TinyExecutorConfig.class})
 class IngestionRejectionIT {
 
@@ -50,6 +60,9 @@ class IngestionRejectionIT {
 
     @Autowired
     private DataSource dataSource;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @Autowired
     @Qualifier("ingestionExecutor")
@@ -89,15 +102,22 @@ class IngestionRejectionIT {
         });
 
         String externalRef = "ext-saturated-" + System.nanoTime();
-
-        ResponseEntity<TicketResponse> response = restTemplate.postForEntity(
-                url("/api/tickets"),
+        double rejectedBefore = meterRegistry.counter("ingestion.queue.rejected").count();
+        String accessToken = registerAndGetAccessToken();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        HttpEntity<CreateTicketRequest> requestEntity = new HttpEntity<>(
                 new CreateTicketRequest(
                         externalRef, "subject", "body", TicketChannel.WEB, "customer@example.com", null),
-                TicketResponse.class);
+                headers);
+
+        ResponseEntity<TicketResponse> response =
+                restTemplate.exchange(url("/api/tickets"), HttpMethod.POST, requestEntity, TicketResponse.class);
 
         // Requirement: 202, not a slow 202, not 503 — see AC-6 (amended).
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(meterRegistry.counter("ingestion.queue.rejected").count())
+            .isEqualTo(rejectedBefore + 1);
 
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         String ingestionState = jdbc.queryForObject(
@@ -112,6 +132,15 @@ class IngestionRejectionIT {
                     "SELECT ingestion_state FROM tickets WHERE external_ref = ?", String.class, externalRef);
             assertThat(state).isEqualTo("DONE");
         });
+    }
+
+    private String registerAndGetAccessToken() {
+        String email = "rejection-" + System.nanoTime() + "@example.com";
+        ResponseEntity<AuthResponse> registerResponse = restTemplate.postForEntity(
+                url("/api/auth/register"),
+                new RegisterRequest(email, "correct-horse-battery-staple", "Rejection Test", null),
+                AuthResponse.class);
+        return registerResponse.getBody().accessToken();
     }
 
     private String url(String path) {

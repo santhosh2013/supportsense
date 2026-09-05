@@ -2,6 +2,8 @@ package io.github.santhosh2013.supportsense.ticket;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.santhosh2013.supportsense.auth.web.AuthResponse;
+import io.github.santhosh2013.supportsense.auth.web.RegisterRequest;
 import io.github.santhosh2013.supportsense.support.PostgresTestContainer;
 import io.github.santhosh2013.supportsense.ticket.persistence.TicketChannel;
 import io.github.santhosh2013.supportsense.ticket.web.CreateTicketRequest;
@@ -22,6 +24,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
@@ -55,6 +60,11 @@ class TicketIdempotencyConcurrencyIT {
     @Test
     @DisplayName("two simultaneous POSTs with the same externalRef never produce a 500 and never duplicate the row")
     void concurrentDuplicatePostsAreHandledSafely() throws InterruptedException {
+        // POST /api/tickets requires an authenticated caller (sheet 06: "any"; ADR-0005:
+        // machine ingestion uses a SERVICE-role user in A1) — a bare request with no
+        // Authorization header is correctly rejected with 403 before it ever reaches the
+        // controller, which is what this test originally hit.
+        String accessToken = registerAndGetAccessToken();
         String externalRef = "ext-concurrent-dup-" + System.nanoTime();
         int concurrentRequests = 10;
 
@@ -68,12 +78,15 @@ class TicketIdempotencyConcurrencyIT {
             pool.submit(() -> {
                 try {
                     startLatch.await();
-                    ResponseEntity<TicketResponse> response = restTemplate.postForEntity(
-                            url("/api/tickets"),
+                    HttpHeaders headers = new HttpHeaders();
+                    headers.setBearerAuth(accessToken);
+                    HttpEntity<CreateTicketRequest> requestEntity = new HttpEntity<>(
                             new CreateTicketRequest(
                                     externalRef, "subject", "body", TicketChannel.WEB,
                                     "customer@example.com", null),
-                            TicketResponse.class);
+                            headers);
+                    ResponseEntity<TicketResponse> response = restTemplate.exchange(
+                            url("/api/tickets"), HttpMethod.POST, requestEntity, TicketResponse.class);
                     statuses.get().add((HttpStatus) response.getStatusCode());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -96,6 +109,15 @@ class TicketIdempotencyConcurrencyIT {
         Integer rowCount = jdbc.queryForObject(
                 "SELECT count(*) FROM tickets WHERE external_ref = ?", Integer.class, externalRef);
         assertThat(rowCount).isEqualTo(1);
+    }
+
+    private String registerAndGetAccessToken() {
+        String email = "ingestion-" + System.nanoTime() + "@example.com";
+        ResponseEntity<AuthResponse> registerResponse = restTemplate.postForEntity(
+                url("/api/auth/register"),
+                new RegisterRequest(email, "correct-horse-battery-staple", "Ingestion Test", null),
+                AuthResponse.class);
+        return registerResponse.getBody().accessToken();
     }
 
     private String url(String path) {

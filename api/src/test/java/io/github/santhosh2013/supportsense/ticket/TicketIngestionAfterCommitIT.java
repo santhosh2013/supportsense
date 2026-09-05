@@ -3,7 +3,10 @@ package io.github.santhosh2013.supportsense.ticket;
 import static org.awaitility.Awaitility.await;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.santhosh2013.supportsense.auth.web.AuthResponse;
+import io.github.santhosh2013.supportsense.auth.web.RegisterRequest;
 import io.github.santhosh2013.supportsense.support.PostgresTestContainer;
+import io.github.santhosh2013.supportsense.ticket.persistence.TicketChannel;
 import io.github.santhosh2013.supportsense.ticket.web.CreateTicketRequest;
 import io.github.santhosh2013.supportsense.ticket.web.TicketResponse;
 import java.time.Duration;
@@ -17,11 +20,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
-import io.github.santhosh2013.supportsense.ticket.persistence.TicketChannel;
 
 /**
  * Proves the AFTER_COMMIT contract is real, not assumed: a ticket must actually reach DONE
@@ -51,13 +56,18 @@ class TicketIngestionAfterCommitIT {
     @Test
     @DisplayName("a successfully committed ticket is asynchronously dispatched and reaches DONE")
     void committedTicketReachesDone() {
+        String accessToken = registerAndGetAccessToken();
         String externalRef = "ext-aftercommit-" + System.nanoTime();
 
-        ResponseEntity<TicketResponse> response = restTemplate.postForEntity(
-                url("/api/tickets"),
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        HttpEntity<CreateTicketRequest> requestEntity = new HttpEntity<>(
                 new CreateTicketRequest(
                         externalRef, "subject", "body", TicketChannel.WEB, "customer@example.com", null),
-                TicketResponse.class);
+                headers);
+
+        ResponseEntity<TicketResponse> response =
+                restTemplate.exchange(url("/api/tickets"), HttpMethod.POST, requestEntity, TicketResponse.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         Long ticketId = response.getBody().id();
@@ -72,6 +82,15 @@ class TicketIngestionAfterCommitIT {
                     "SELECT ingestion_state FROM tickets WHERE id = ?", String.class, ticketId);
             assertThat(state).isEqualTo("DONE");
         });
+    }
+
+    private String registerAndGetAccessToken() {
+        String email = "aftercommit-" + System.nanoTime() + "@example.com";
+        ResponseEntity<AuthResponse> registerResponse = restTemplate.postForEntity(
+                url("/api/auth/register"),
+                new RegisterRequest(email, "correct-horse-battery-staple", "AfterCommit Test", null),
+                AuthResponse.class);
+        return registerResponse.getBody().accessToken();
     }
 
     private String url(String path) {

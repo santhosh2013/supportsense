@@ -4,7 +4,7 @@ import io.github.santhosh2013.supportsense.ticket.persistence.CustomerTier;
 import io.github.santhosh2013.supportsense.ticket.persistence.Ticket;
 import io.github.santhosh2013.supportsense.ticket.persistence.TicketRepository;
 import io.github.santhosh2013.supportsense.ticket.web.CreateTicketRequest;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,23 +24,22 @@ import org.springframework.transaction.annotation.Transactional;
 public class TicketInsertAttempt {
 
     private final TicketRepository ticketRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
-    public TicketInsertAttempt(TicketRepository ticketRepository) {
+    public TicketInsertAttempt(TicketRepository ticketRepository, ApplicationEventPublisher eventPublisher) {
         this.ticketRepository = ticketRepository;
+        this.eventPublisher = eventPublisher;
     }
 
-    /** Returns the persisted ticket, or {@code null} if externalRef already existed. */
+    /** Returns the persisted ticket; lets constraint violations escape after rollback. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Ticket tryInsert(CreateTicketRequest request) {
         CustomerTier tier = request.customerTier() == null ? CustomerTier.FREE : request.customerTier();
         Ticket ticket = new Ticket(
                 request.externalRef(), request.subject(), request.body(), request.channel(),
                 request.customerEmail(), tier);
-        try {
-            ticketRepository.saveAndFlush(ticket);
-            return ticket;
-        } catch (DataIntegrityViolationException e) {
-            return null;
-        }
+        Ticket inserted = ticketRepository.saveAndFlush(ticket);
+        eventPublisher.publishEvent(new TicketCreatedEvent(inserted.getId()));
+        return inserted;
     }
 }
