@@ -1,0 +1,45 @@
+# Build output
+target/
+build/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+!.vscode/extensions.json
+.settings/
+.project
+.classpath
+nbproject/private/
+
+# Node (web/ from A6)
+node_modules/
+dist/
+.angular/
+npm-debug.log*
+
+# Environment and secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+application-local.yml
+!api/src/main/resources/application-local.yml.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and reports
+*.log
+logs/
+**/surefire-reports/
+**/failsafe-reports/
+*.exec

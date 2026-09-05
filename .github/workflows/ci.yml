@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history needed so gitleaks scans everything, not just the diff.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build, unit + integration tests, merged coverage
+        working-directory: api
+        run: ./mvnw --batch-mode verify
+
+      - name: Enforce coverage gate on merged unit+IT data
+        working-directory: api
+        run: ./mvnw --batch-mode jacoco:check@check-merged
+
+      - name: Publish test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Surefire & Failsafe results
+          path: "api/target/surefire-reports/*.xml,api/target/failsafe-reports/*.xml"
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Upload merged coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-merged-report
+          path: api/target/site/jacoco-merged/

@@ -1,0 +1,7 @@
+spring:
+  flyway:
+    enabled: true
+supportsense:
+  security:
+    jwt-secret: test-secret-key-for-integration-tests-only-not-production-safe
+    admin-password: test-admin-password

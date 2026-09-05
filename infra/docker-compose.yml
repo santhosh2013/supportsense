@@ -1,0 +1,31 @@
+# pgvector image now (rather than plain postgres:16) even though the extension is not
+# load-bearing until milestone A3 — forward-compatible, zero cost, per ADR-0007.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: supportsense
+      POSTGRES_USER: supportsense
+      POSTGRES_PASSWORD: supportsense
+    ports:
+      - "5432:5432"
+    volumes:
+      - supportsense-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supportsense"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  supportsense-postgres-data:
