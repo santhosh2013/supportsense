@@ -5,3 +5,10 @@ supportsense:
   security:
     jwt-secret: test-secret-key-for-integration-tests-only-not-production-safe
     admin-password: test-admin-password
+management:
+  health:
+    # Redis is wired per sheet 03 but not exercised until the semantic-cache feature (A6);
+    # no Redis instance runs in the test/CI context. Excluding it here only affects the
+    # `test` profile — `cloud` still fails health if Redis is genuinely unreachable.
+    redis:
+      enabled: false

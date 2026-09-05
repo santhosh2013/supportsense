@@ -108,6 +108,17 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+          The JDK's HttpURLConnection has hardcoded internal retry logic for 401/407
+          responses that throws HttpRetryException when the request body is streamed —
+          disabling output streaming does not avoid it. TestRestTemplate is switched to
+          this client instead, which handles auth-challenge responses correctly.
+        -->
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-test</artifactId>
