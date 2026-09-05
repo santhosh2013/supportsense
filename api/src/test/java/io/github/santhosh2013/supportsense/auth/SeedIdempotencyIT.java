@@ -36,16 +36,26 @@ class SeedIdempotencyIT {
                 StandardCharsets.UTF_8);
 
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+
+        // Baseline BEFORE replaying: @SpringBootTest shares one database across every test
+        // class in the JVM fork, so other tests may have already inserted their own
+        // isolated teams/categories/admins by the time this runs. Idempotency means "the
+        // count does not grow from replaying the seed" — not "the count equals a fixed
+        // number" — so both counts are captured before and after, and only the delta is
+        // asserted.
+        int teamCountBefore = jdbc.queryForObject("SELECT count(*) FROM teams", Integer.class);
+        int categoryCountBefore = jdbc.queryForObject("SELECT count(*) FROM categories", Integer.class);
+        int adminCountBefore = jdbc.queryForObject("SELECT count(*) FROM users WHERE role = 'ADMIN'", Integer.class);
+
         jdbc.execute(seedSql);
         jdbc.execute(seedSql);
 
-        Integer teamCount = jdbc.queryForObject("SELECT count(*) FROM teams", Integer.class);
-        Integer categoryCount = jdbc.queryForObject("SELECT count(*) FROM categories", Integer.class);
-        Integer adminCount =
-                jdbc.queryForObject("SELECT count(*) FROM users WHERE role = 'ADMIN'", Integer.class);
+        int teamCountAfter = jdbc.queryForObject("SELECT count(*) FROM teams", Integer.class);
+        int categoryCountAfter = jdbc.queryForObject("SELECT count(*) FROM categories", Integer.class);
+        int adminCountAfter = jdbc.queryForObject("SELECT count(*) FROM users WHERE role = 'ADMIN'", Integer.class);
 
-        assertThat(teamCount).isEqualTo(5);
-        assertThat(categoryCount).isEqualTo(10);
-        assertThat(adminCount).isEqualTo(1);
+        assertThat(teamCountAfter).isEqualTo(teamCountBefore);
+        assertThat(categoryCountAfter).isEqualTo(categoryCountBefore);
+        assertThat(adminCountAfter).isEqualTo(adminCountBefore);
     }
 }

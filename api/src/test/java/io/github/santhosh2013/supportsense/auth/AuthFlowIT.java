@@ -147,15 +147,28 @@ class AuthFlowIT {
     @Test
     @DisplayName("the taxonomy seed produces exactly 5 teams and 10 leaf categories")
     void seedProducesExpectedTaxonomy() {
+        // Asserts the specific seeded rows exist by slug, rather than a bare total count.
+        // @SpringBootTest shares one database across every test CLASS in the same JVM, not
+        // just methods within a class — other tests (e.g. TicketApiSecurityIT) legitimately
+        // insert their own isolated teams for BR-A10 fixtures, so a bare count is not an
+        // invariant once any other suite member is allowed to write a team row.
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
 
-        Integer teamCount = jdbc.queryForObject("SELECT count(*) FROM teams", Integer.class);
-        Integer categoryCount = jdbc.queryForObject("SELECT count(*) FROM categories", Integer.class);
+        Integer seededTeamCount = jdbc.queryForObject(
+                "SELECT count(*) FROM teams WHERE slug IN "
+                        + "('billing-ops','platform-support','identity-access','data-integrations','customer-success')",
+                Integer.class);
+        Integer seededCategoryCount = jdbc.queryForObject(
+                "SELECT count(*) FROM categories WHERE slug IN "
+                        + "('billing-invoice','billing-refund','legal-compliance','security-privacy',"
+                        + "'account-login-access','account-provisioning','api-integration-error',"
+                        + "'data-import-export','performance-latency','bug-report')",
+                Integer.class);
         Integer adminCount =
                 jdbc.queryForObject("SELECT count(*) FROM users WHERE role = 'ADMIN'", Integer.class);
 
-        assertThat(teamCount).isEqualTo(5);
-        assertThat(categoryCount).isEqualTo(10);
+        assertThat(seededTeamCount).isEqualTo(5);
+        assertThat(seededCategoryCount).isEqualTo(10);
         assertThat(adminCount).isEqualTo(1);
     }
 
