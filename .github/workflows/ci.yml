@@ -40,6 +40,12 @@ jobs:
           path: gitleaks-results.sarif
           if-no-files-found: ignore
 
+      # Git on Windows does not preserve the Unix executable bit, so mvnw is committed
+      # without it. Restoring it here rather than relying on the committer's OS.
+      - name: Make Maven Wrapper executable
+        working-directory: api
+        run: chmod +x mvnw
+
       - name: Build, unit + integration tests, merged coverage
         working-directory: api
         run: ./mvnw --batch-mode verify
