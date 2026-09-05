@@ -47,3 +47,20 @@ CREATE TABLE users (
 );
 
 CREATE UNIQUE INDEX ux_users_email_lower ON users (lower(email));
+
+-- Refresh tokens are hashed at rest (SHA-256), rotated on every use, and grouped into a
+-- family so reuse of an already-rotated token can revoke every descendant at once.
+CREATE TABLE refresh_tokens (
+    id          bigserial PRIMARY KEY,
+    user_id     bigint       NOT NULL REFERENCES users (id),
+    token_hash  varchar(64)  NOT NULL,
+    family_id   uuid         NOT NULL,
+    issued_at   timestamptz  NOT NULL DEFAULT now(),
+    expires_at  timestamptz  NOT NULL,
+    rotated_at  timestamptz,
+    revoked_at  timestamptz
+);
+
+CREATE UNIQUE INDEX ux_refresh_token_hash ON refresh_tokens (token_hash);
+CREATE INDEX ix_refresh_token_family ON refresh_tokens (family_id);
+

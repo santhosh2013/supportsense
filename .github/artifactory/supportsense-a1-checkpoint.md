@@ -60,3 +60,10 @@
 
 ## Open Questions
 None — OQ-1..OQ-4 resolved; FR-5/AC-6 delta amended into requirements.
+
+## Batch Progress
+- **Batch 1 (skeleton, CI, ADR index): code complete, committed locally.** `mvn test` green (9/9, no Docker). `WalkingSkeletonIT` compiles, excluded from Surefire as designed.
+- **⚠️ ACCEPTED RISK:** No GitHub remote yet (blocked on switching `gh auth` off a Ford-associated account). **CI has never actually executed `WalkingSkeletonIT` under Failsafe, and the merged JaCoCo report has never been produced on a real runner.** User has explicitly accepted continuing all batches locally and deferring the push + first real CI run until the end, rather than blocking on it per-batch as originally planned.
+- Mandatory pause points (user-specified, still in force): after Flyway V1–V4 + entities batch; after the ingestion durability batch (persist-first, sweep, reaper, conditional claim); after the team-isolation/security batch.
+- Hard stops (never do): `@Disabled`/`@Ignore`; lower JaCoCo threshold or add exclusions to pass it; substitute H2/embedded DB for Testcontainers; delete/weaken an ArchUnit rule; edit an AC to match the code.
+- End-of-batch report format: batch name · business rules/ADRs touched · named test covering each · CI/local-test status · anything deferred.
