@@ -88,6 +88,25 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    @DisplayName("TriageResult and DuplicateLink stay persistence-only in A1")
+    void triageAndDuplicateLinkAreNotUsedOutsidePersistence() {
+        ArchRule rule = noClasses()
+                .that()
+                .resideOutsideOfPackage("..triage.persistence..")
+                .should()
+                .dependOnClassesThat()
+                .haveSimpleNameEndingWith("TriageResult")
+                .orShould()
+                .dependOnClassesThat()
+                .haveSimpleNameEndingWith("DuplicateLink")
+                .because("A1 scopes these entities as persistence-only: no service, "
+                        + "no endpoint, no business logic until A2/A5")
+                .allowEmptyShould(true);
+
+        rule.check(productionClasses);
+    }
+
+    @Test
     @DisplayName("production code never reads the clock inline")
     void noInlineClockAccess() {
         ArchRule rule = noClasses()
