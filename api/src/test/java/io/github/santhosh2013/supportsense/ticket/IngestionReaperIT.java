@@ -124,6 +124,73 @@ class IngestionReaperIT {
     }
 
     @Test
+    @DisplayName("one ticket's reaper failure does not roll back other tickets processed in the same sweep tick")
+    void oneFailingTicketDoesNotRollBackUnrelatedTicketsInTheSameBatch() {
+        // Regression test for a real bug found in code review: reap() originally ran the
+        // entire batch loop in one @Transactional method, so a single failure (here:
+        // routeToFallbackTeam throwing because the fallback team is temporarily missing)
+        // would roll back the resets already applied to unrelated stale tickets earlier in
+        // the same tick. This test fails on the pre-fix code and passes after switching to
+        // per-ticket REQUIRES_NEW processing via ReaperItemProcessor.
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        Instant staleClaim = Instant.now().minus(20, ChronoUnit.MINUTES);
+
+        String validRefBefore = "ext-reaper-mixed-valid-before-" + System.nanoTime();
+        String invalidRef = "ext-reaper-mixed-invalid-" + System.nanoTime();
+        String validRefAfter = "ext-reaper-mixed-valid-after-" + System.nanoTime();
+
+        // Two ordinary stale rows (attempt_count below the cap — the reset branch).
+        jdbc.update(
+                "INSERT INTO tickets (external_ref, subject, body, channel, customer_email, "
+                        + "ingestion_state, claimed_at, attempt_count) "
+                        + "VALUES (?, 'subject', 'body', 'WEB', 'customer@example.com', 'PROCESSING', ?, 1)",
+                validRefBefore,
+                java.sql.Timestamp.from(staleClaim));
+        jdbc.update(
+                "INSERT INTO tickets (external_ref, subject, body, channel, customer_email, "
+                        + "ingestion_state, claimed_at, attempt_count) "
+                        + "VALUES (?, 'subject', 'body', 'WEB', 'customer@example.com', 'PROCESSING', ?, 1)",
+                validRefAfter,
+                java.sql.Timestamp.from(staleClaim));
+        // One exhausted stale row — the exhausted branch, which will fail because the
+        // fallback team is temporarily deleted below.
+        jdbc.update(
+                "INSERT INTO tickets (external_ref, subject, body, channel, customer_email, "
+                        + "ingestion_state, claimed_at, attempt_count) "
+                        + "VALUES (?, 'subject', 'body', 'WEB', 'customer@example.com', 'PROCESSING', ?, 3)",
+                invalidRef,
+                java.sql.Timestamp.from(staleClaim));
+
+        // Temporarily remove the fallback team so routeToFallbackTeam throws for invalidRef.
+        Long fallbackTeamId =
+                jdbc.queryForObject("SELECT id FROM teams WHERE slug = 'customer-success'", Long.class);
+        String fallbackTeamSlug = jdbc.queryForObject(
+                "SELECT slug FROM teams WHERE id = ?", String.class, fallbackTeamId);
+        jdbc.update("UPDATE teams SET slug = 'customer-success-temporarily-renamed' WHERE id = ?", fallbackTeamId);
+
+        try {
+            sweepService.reap();
+        } finally {
+            jdbc.update("UPDATE teams SET slug = ? WHERE id = ?", fallbackTeamSlug, fallbackTeamId);
+        }
+
+        String stateBefore = jdbc.queryForObject(
+                "SELECT ingestion_state FROM tickets WHERE external_ref = ?", String.class, validRefBefore);
+        String stateAfter = jdbc.queryForObject(
+                "SELECT ingestion_state FROM tickets WHERE external_ref = ?", String.class, validRefAfter);
+        String invalidState = jdbc.queryForObject(
+                "SELECT ingestion_state FROM tickets WHERE external_ref = ?", String.class, invalidRef);
+
+        // The two valid tickets MUST be reset to PENDING despite the third ticket's failure —
+        // proving the failure did not roll back their already-applied fix.
+        assertThat(stateBefore).isEqualTo("PENDING");
+        assertThat(stateAfter).isEqualTo("PENDING");
+        // The failing ticket remains PROCESSING (its own REQUIRES_NEW transaction rolled
+        // back), to be retried on the next tick once the fallback team is restored.
+        assertThat(invalidState).isEqualTo("PROCESSING");
+    }
+
+    @Test
     @DisplayName("a row that has exhausted the attempt cap is routed to the fallback team, not left as a dead-end FAILED")
     void exhaustedAttemptsRouteToFallbackTeam() {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);

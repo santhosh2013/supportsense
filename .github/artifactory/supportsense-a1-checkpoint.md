@@ -1,8 +1,8 @@
 # Pipeline Checkpoint — supportsense-a1
 
 ## State
-- Phase completed: 2 (Design)
-- Next phase: 3 (Build — Batch 1)
+- Phase completed: 3 (Build — all 6 batches CI-verified green)
+- Next phase: 4 (Code Review)
 - Slug: `supportsense-a1`
 - Codebase: `c:\Users\ASANTH16\Downloads\Project1` (empty — greenfield)
 - Project type: Backend API (Spring Boot 3.3 / Java 21); Angular console deferred to A6
@@ -102,8 +102,9 @@ None — OQ-1..OQ-4 resolved; FR-5/AC-6 delta amended into requirements.
   - Tests: `PreScreenMatcherTest` (11: substring-inside-word false positives, punctuation, hyphenation, case/Unicode, possessives, variable whitespace, null/empty/50KB safety, precompiled-pattern identity, malformed configuration), `AutoAnswerGateTest` (6: all OR combinations plus downstream short-circuit), `PromptResourceLoaderTest` (2: classpath load/render and missing template).
   - ADR-0013 and ADR-0014 are written and linked in the ADR index; ADR-0002 remains marked `Superseded` by ADR-0015, never deleted.
   - README now has architecture diagram, problem statement, run paths, business-rule→test map, ADR link, and explicit A2-only scope. Public-doc/code/config fixture scan found no employer name, internal hostname, CDSID, corporate email, or proxy address.
-  - **Coverage note:** local unit-only report is 19.44% (145/746 lines), not the CI gate’s merged figure. This is reported honestly; no JaCoCo threshold/exclusion was weakened and no getter/setter padding was added. CI must publish the authoritative merged Surefire+Failsafe percentage.
-- Mandatory pause points (user-specified): ✅ V1–V4/entities batch — reviewed and passed. ✅ Batch 4 (team-isolation/security) — CI-verified, closed. ✅ Batch 5 (ingestion durability) — CI-verified, closed.
+  - **Coverage note:** local unit-only report was 19.44% (145/746 lines) — not the CI gate's merged figure. No JaCoCo threshold/exclusion was weakened and no getter/setter padding was added.
+- **Batch 6: ✅ CI GREEN.** GitHub Actions confirmed passing — build, full Surefire+Failsafe suite, and the JaCoCo merged-coverage check (enforced ≥60%) all succeeded. **Exact test counts and the precise merged coverage percentage were not captured from the run** — user confirmed success without pasting the log, so this checkpoint records pass/fail status only, not fabricated numbers. If exact figures are needed later (e.g. for a resume metric per sheet 16), re-run CI and capture the JaCoCo summary and Surefire/Failsafe totals from the Actions log.
+- Mandatory pause points (user-specified): ✅ V1–V4/entities batch — reviewed and passed. ✅ Batch 4 (team-isolation/security) — CI-verified, closed. ✅ Batch 5 (ingestion durability) — CI-verified, closed. ✅ Batch 6 (final A1 hardening) — CI-verified, closed.
 - Hard stops (never do): `@Disabled`/`@Ignore`; lower JaCoCo threshold or add exclusions to pass it; substitute H2/embedded DB for Testcontainers; delete/weaken an ArchUnit rule; edit an AC to match the code.
 - End-of-batch report format: batch name · business rules/ADRs touched · named test covering each · CI/local-test status · anything deferred.
 - **Process note for future batches:** local `mvn test` passing is necessary but not sufficient — `*IT.java` (Testcontainers) tests only prove out on a real CI run. Push after every batch and wait for the Actions result before treating a batch as done.

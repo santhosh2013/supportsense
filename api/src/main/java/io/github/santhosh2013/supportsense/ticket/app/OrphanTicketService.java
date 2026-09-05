@@ -7,6 +7,7 @@ import io.github.santhosh2013.supportsense.ticket.persistence.TeamRepository;
 import io.github.santhosh2013.supportsense.ticket.persistence.Ticket;
 import io.github.santhosh2013.supportsense.ticket.persistence.TicketRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -32,6 +33,24 @@ public class OrphanTicketService {
 
     @Transactional
     public void routeToFallbackTeam(Ticket ticket) {
+        applyFallbackRouting(ticket);
+    }
+
+    /**
+     * Routes a never-claimed orphan in its own REQUIRES_NEW transaction. Calls the shared
+     * private routing logic directly rather than {@link #routeToFallbackTeam} — that public
+     * method is itself {@code @Transactional} (REQUIRED), and calling it via {@code this}
+     * from within an already-active REQUIRES_NEW transaction is a self-invocation that
+     * bypasses its proxy. It happens to be harmless here (REQUIRES_NEW already established
+     * a transaction), but the pattern is exactly the defect class this codebase has been
+     * burned by twice already — kept unambiguous rather than accidentally correct.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void routeNeverClaimedOrphan(Long ticketId) {
+        ticketRepository.findById(ticketId).ifPresent(this::applyFallbackRouting);
+    }
+
+    private void applyFallbackRouting(Ticket ticket) {
         Team fallbackTeam = teamRepository
                 .findBySlug(ingestionProperties.fallbackTeamSlug())
                 .orElseThrow(() -> new IllegalStateException(

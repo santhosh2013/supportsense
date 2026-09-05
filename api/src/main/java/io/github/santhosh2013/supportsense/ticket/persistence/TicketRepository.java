@@ -58,6 +58,16 @@ public interface TicketRepository extends JpaRepository<Ticket, Long>, JpaSpecif
             "select t from Ticket t where t.ingestionState = io.github.santhosh2013.supportsense.ticket.persistence.IngestionState.PROCESSING "
                     + "and t.claimedAt is not null and t.claimedAt < :staleBefore")
     List<Ticket> findStaleProcessing(@Param("staleBefore") Instant staleBefore);
+
+    /** Never-claimed NEW tickets that have exceeded the untriaged orphan threshold. */
+    @Query(
+            "select t.id from Ticket t where t.status = io.github.santhosh2013.supportsense.ticket.persistence.TicketStatus.NEW "
+                    + "and t.ingestionState = io.github.santhosh2013.supportsense.ticket.persistence.IngestionState.PENDING "
+                    + "and t.claimedAt is null and t.team is null and t.createdAt < :createdBefore "
+                    + "order by t.createdAt")
+    List<Long> findNeverClaimedOrphanIds(
+            @Param("createdBefore") Instant createdBefore,
+            org.springframework.data.domain.Pageable pageable);
 }
 
 
