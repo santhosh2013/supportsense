@@ -15,7 +15,9 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Refresh tokens are hashed at rest, rotated on every use, and grouped into families so
@@ -30,14 +32,19 @@ public class RefreshTokenService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final SupportSenseProperties.Security securityProperties;
     private final TimeSource timeSource;
+    private final TransactionTemplate requiresNewTransactionTemplate;
 
     public RefreshTokenService(
             RefreshTokenRepository refreshTokenRepository,
             SupportSenseProperties properties,
-            TimeSource timeSource) {
+            TimeSource timeSource,
+            PlatformTransactionManager transactionManager) {
         this.refreshTokenRepository = refreshTokenRepository;
         this.securityProperties = properties.security();
         this.timeSource = timeSource;
+        this.requiresNewTransactionTemplate = new TransactionTemplate(transactionManager);
+        this.requiresNewTransactionTemplate.setPropagationBehavior(
+                org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Transactional
@@ -79,9 +86,16 @@ public class RefreshTokenService {
     }
 
     private void revokeFamily(UUID familyId, Instant now) {
-        List<RefreshToken> family = refreshTokenRepository.findByFamilyId(familyId);
-        family.forEach(t -> t.revoke(now));
-        refreshTokenRepository.saveAll(family);
+        // REQUIRES_NEW: the caller (AuthService.refresh) throws BadCredentialsException in
+        // the same call, and the default rollback rule would otherwise undo this write —
+        // silently discarding the one security-critical side effect the 401 exists to
+        // trigger. Committing independently means the revocation survives regardless of
+        // what the caller's transaction does next.
+        requiresNewTransactionTemplate.executeWithoutResult(status -> {
+            List<RefreshToken> family = refreshTokenRepository.findByFamilyId(familyId);
+            family.forEach(t -> t.revoke(now));
+            refreshTokenRepository.saveAll(family);
+        });
     }
 
     private String issue(User user, UUID familyId) {
