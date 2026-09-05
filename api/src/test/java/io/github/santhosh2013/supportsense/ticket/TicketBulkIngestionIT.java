@@ -3,6 +3,7 @@ package io.github.santhosh2013.supportsense.ticket;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.santhosh2013.supportsense.auth.web.AuthResponse;
+import io.github.santhosh2013.supportsense.auth.web.LoginRequest;
 import io.github.santhosh2013.supportsense.auth.web.RegisterRequest;
 import io.github.santhosh2013.supportsense.support.PostgresTestContainer;
 import io.github.santhosh2013.supportsense.ticket.persistence.TicketChannel;
@@ -56,7 +57,7 @@ class TicketBulkIngestionIT {
     @Test
     @DisplayName("bulk ingestion reports a per-item outcome, including a duplicate and a rejection")
     void bulkIngestionReportsHonestPerItemOutcomes() {
-        String accessToken = registerAndGetAccessToken();
+                String accessToken = registerPromoteAndLoginAsAdmin();
         String sharedRef = "ext-bulk-dup-" + System.nanoTime();
 
         // Pre-existing ticket so one bulk item collides as a genuine BR-A02 duplicate.
@@ -74,7 +75,9 @@ class TicketBulkIngestionIT {
         List<CreateTicketRequest> batch = List.of(
                 new CreateTicketRequest(
                         "ext-bulk-new-" + System.nanoTime(), "s", "b", TicketChannel.WEB, "a@example.com", null),
-                new CreateTicketRequest(sharedRef, "s", "b", TicketChannel.WEB, "a@example.com", null));
+                new CreateTicketRequest(sharedRef, "s", "b", TicketChannel.WEB, "a@example.com", null),
+                new CreateTicketRequest(
+                        "ext-bulk-invalid-" + System.nanoTime(), "", "b", TicketChannel.WEB, "a@example.com", null));
 
         ResponseEntity<BulkIngestResponse> response = restTemplate.exchange(
                 url("/api/tickets/bulk"), HttpMethod.POST, new HttpEntity<>(batch, headers), BulkIngestResponse.class);
@@ -83,16 +86,17 @@ class TicketBulkIngestionIT {
         BulkIngestResponse body = response.getBody();
         assertThat(body.accepted()).isEqualTo(1);
         assertThat(body.duplicates()).isEqualTo(1);
-        assertThat(body.rejected()).isEqualTo(0);
-        assertThat(body.items()).hasSize(2);
+        assertThat(body.rejected()).isEqualTo(1);
+        assertThat(body.items()).hasSize(3);
         assertThat(body.items().get(0).outcome()).isEqualTo(BulkIngestResponse.Outcome.ACCEPTED);
         assertThat(body.items().get(1).outcome()).isEqualTo(BulkIngestResponse.Outcome.DUPLICATE);
+        assertThat(body.items().get(2).outcome()).isEqualTo(BulkIngestResponse.Outcome.REJECTED);
     }
 
     @Test
     @DisplayName("a bulk request exceeding the max batch size is rejected with 400, not silently truncated")
     void oversizedBulkRequestIsRejectedNotTruncated() {
-        String accessToken = registerAndGetAccessToken();
+                String accessToken = registerPromoteAndLoginAsAdmin();
 
         List<CreateTicketRequest> tooMany = new ArrayList<>();
         for (int i = 0; i < 501; i++) {
@@ -114,13 +118,21 @@ class TicketBulkIngestionIT {
         assertThat(count).isZero();
     }
 
-    private String registerAndGetAccessToken() {
+        private String registerPromoteAndLoginAsAdmin() {
         String email = "bulk-" + System.nanoTime() + "@example.com";
-        ResponseEntity<AuthResponse> registerResponse = restTemplate.postForEntity(
+                restTemplate.postForEntity(
                 url("/api/auth/register"),
                 new RegisterRequest(email, "correct-horse-battery-staple", "Bulk Test", null),
                 AuthResponse.class);
-        return registerResponse.getBody().accessToken();
+                new JdbcTemplate(dataSource).update("UPDATE users SET role = 'ADMIN' WHERE email = ?", email);
+
+                // Registration always issues an AGENT token. Re-login after the test-only database
+                // promotion so this request carries the ADMIN role that the endpoint now enforces.
+                ResponseEntity<AuthResponse> loginResponse = restTemplate.postForEntity(
+                                url("/api/auth/login"),
+                                new LoginRequest(email, "correct-horse-battery-staple"),
+                                AuthResponse.class);
+                return loginResponse.getBody().accessToken();
     }
 
     private String url(String path) {

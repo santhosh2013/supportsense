@@ -115,6 +115,9 @@ flowchart LR
 - Confidence calibration and confusion-matrix analytics
 - Runtime abstention based on classification confidence, retrieval similarity, and customer tier
 - Human triage queue and downstream resolution drafting
+- [ ] **Tracked follow-up:** retain clearly non-production local/test credential fixtures until
+  deployment configuration is introduced in A2; they are required for deterministic tests and
+  must never be reused as deployed credentials.
 
 The A1 pre-screen is intentionally a pure, configuration-driven foundation. It blocks
 sensitive terms before any downstream continuation can run, but does not call a model or

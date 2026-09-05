@@ -1,12 +1,11 @@
 package io.github.santhosh2013.supportsense.ticket.web;
 
+import io.github.santhosh2013.supportsense.ticket.app.BulkIngestionService;
 import io.github.santhosh2013.supportsense.ticket.app.TicketIngestionService;
 import io.github.santhosh2013.supportsense.ticket.app.TicketService;
 import jakarta.validation.Valid;
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.List;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -34,10 +33,15 @@ public class TicketController {
 
     private final TicketService ticketService;
     private final TicketIngestionService ingestionService;
+    private final BulkIngestionService bulkIngestionService;
 
-    public TicketController(TicketService ticketService, TicketIngestionService ingestionService) {
+    public TicketController(
+            TicketService ticketService,
+            TicketIngestionService ingestionService,
+            BulkIngestionService bulkIngestionService) {
         this.ticketService = ticketService;
         this.ingestionService = ingestionService;
+        this.bulkIngestionService = bulkIngestionService;
     }
 
     /**
@@ -63,7 +67,7 @@ public class TicketController {
      */
     @PostMapping("/bulk")
     @PreAuthorize("hasAnyRole('ADMIN','SERVICE')")
-    public ResponseEntity<BulkIngestResponse> createBulk(@RequestBody List<@Valid CreateTicketRequest> requests) {
+    public ResponseEntity<BulkIngestResponse> createBulk(@RequestBody List<CreateTicketRequest> requests) {
         if (requests.size() > MAX_BULK_SIZE) {
             ProblemDetail problem = ProblemDetail.forStatusAndDetail(
                     HttpStatus.BAD_REQUEST,
@@ -72,35 +76,7 @@ public class TicketController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, problem.getDetail());
         }
 
-        List<BulkIngestResponse.BulkIngestItemResult> results = new ArrayList<>(requests.size());
-        int accepted = 0;
-        int duplicates = 0;
-        int rejected = 0;
-
-        for (int index = 0; index < requests.size(); index++) {
-            CreateTicketRequest request = requests.get(index);
-            try {
-                TicketIngestionService.IngestionResult result = ingestionService.ingest(request);
-                if (result.wasDuplicate()) {
-                    duplicates++;
-                    results.add(new BulkIngestResponse.BulkIngestItemResult(
-                            index, request.externalRef(), BulkIngestResponse.Outcome.DUPLICATE,
-                            result.ticket().id(), null));
-                } else {
-                    accepted++;
-                    results.add(new BulkIngestResponse.BulkIngestItemResult(
-                            index, request.externalRef(), BulkIngestResponse.Outcome.ACCEPTED,
-                            result.ticket().id(), null));
-                }
-            } catch (DataIntegrityViolationException | IllegalStateException e) {
-                rejected++;
-                results.add(new BulkIngestResponse.BulkIngestItemResult(
-                        index, request.externalRef(), BulkIngestResponse.Outcome.REJECTED, null, e.getMessage()));
-            }
-        }
-
-        return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(new BulkIngestResponse(accepted, duplicates, rejected, results));
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(bulkIngestionService.ingest(requests));
     }
 
     @GetMapping

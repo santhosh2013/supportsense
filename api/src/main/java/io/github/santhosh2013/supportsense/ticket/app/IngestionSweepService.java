@@ -3,7 +3,6 @@ package io.github.santhosh2013.supportsense.ticket.app;
 import io.github.santhosh2013.supportsense.common.config.SupportSenseProperties;
 import io.github.santhosh2013.supportsense.common.domain.TimeSource;
 import io.github.santhosh2013.supportsense.ticket.domain.IngestionDispatchPort;
-import io.github.santhosh2013.supportsense.ticket.persistence.IngestionState;
 import io.github.santhosh2013.supportsense.ticket.persistence.Ticket;
 import io.github.santhosh2013.supportsense.ticket.persistence.TicketRepository;
 import java.time.Instant;

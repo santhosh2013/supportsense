@@ -207,9 +207,24 @@
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>${jacoco.version}</version>
                 <configuration>
+                    <!--
+                      Narrowed from a blanket **/config/** exclusion (code-review Should-fix
+                      #2): that pattern also swept up RequiredSecretsValidator and
+                      IngestionUncaughtExceptionHandler, which carry real, independently
+                      tested logic — excluding them let their tested status silently stop
+                      affecting the coverage percentage either way. Only genuine bean-wiring
+                      @Configuration classes and the plain-data properties record are
+                      excluded now. **/dto/** removed entirely (Should-fix #3): no `dto`
+                      package exists anywhere in this codebase; request/response records
+                      live under *.web and were never actually matched by that pattern.
+                    -->
                     <excludes>
-                        <exclude>**/config/**</exclude>
-                        <exclude>**/dto/**</exclude>
+                        <exclude>**/common/config/AsyncConfig.class</exclude>
+                        <exclude>**/common/config/SecurityConfig.class</exclude>
+                        <exclude>**/common/config/TimeConfig.class</exclude>
+                        <exclude>**/common/config/SupportSenseProperties.class</exclude>
+                        <exclude>**/common/config/SupportSenseProperties$*.class</exclude>
+                        <exclude>**/triage/app/PreScreenConfig.class</exclude>
                         <exclude>**/SupportSenseApplication.class</exclude>
                     </excludes>
                 </configuration>

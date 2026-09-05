@@ -34,7 +34,13 @@ public class JwtTokenService {
                 .claim("role", user.getRole().name())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(securityProperties.accessTokenTtl())))
-                .signWith(signingKey)
+                // Explicitly pinned rather than left to signWith's key-type inference —
+                // code-review Should-fix #4: the prior code was very likely already safe
+                // (verifyWith(SecretKey) structurally requires an HMAC signature and JJWT's
+                // typed API cannot be tricked into accepting alg:none), but that was an
+                // untested claim about library semantics. See JwtAlgorithmSecurityTest for
+                // the forged-token proof.
+                .signWith(signingKey, Jwts.SIG.HS256)
                 .compact();
     }
 
