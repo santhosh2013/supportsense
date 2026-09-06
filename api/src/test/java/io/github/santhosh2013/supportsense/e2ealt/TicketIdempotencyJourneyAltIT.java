@@ -109,10 +109,25 @@ class TicketIdempotencyJourneyAltIT {
         long distinctIds = responses.stream().map(r -> r.getBody().id()).distinct().count();
         assertThat(distinctIds).isEqualTo(1);
 
+        // The creating AGENT cannot read this back: a freshly ingested ticket has no team
+        // (no triage exists in A1), and TicketSpecifications.visibleTo hides untriaged
+        // tickets from every AGENT, including its own creator (see README API-F1). Only
+        // the seeded ADMIN can see an untriaged ticket.
         Long ticketId = responses.get(0).getBody().id();
-        ResponseEntity<TicketResponse> followupGet = get(ticketId, accessToken);
+        String adminToken = loginAsSeededAdmin();
+        ResponseEntity<TicketResponse> followupGet = get(ticketId, adminToken);
         assertThat(followupGet.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(followupGet.getBody().externalRef()).isEqualTo(externalRef);
+    }
+
+    private String loginAsSeededAdmin() {
+        ResponseEntity<AuthResponse> loginResponse = restTemplate.postForEntity(
+                url("/api/auth/login"),
+                new io.github.santhosh2013.supportsense.auth.web.LoginRequest(
+                        "admin@supportsense.local", "test-admin-password"),
+                AuthResponse.class);
+        assertThat(loginResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return loginResponse.getBody().accessToken();
     }
 
     private ResponseEntity<TicketResponse> post(CreateTicketRequest request, String accessToken) {

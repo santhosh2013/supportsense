@@ -120,8 +120,8 @@ class JwtRejectionStatusCodeIT {
     }
 
     @Test
-    @DisplayName("all four rejection modes return byte-identical bodies — no credential-probing oracle")
-    void allRejectionModesReturnIdenticalBodies() {
+    @DisplayName("all four rejection modes return identical bodies apart from timestamp — no credential-probing oracle")
+    void allRejectionModesReturnIdenticalBodies() throws Exception {
         String expired =
                 forgedToken(builder -> builder.expiration(Date.from(Instant.now().minus(1, ChronoUnit.HOURS))));
         String valid = forgedToken(builder -> {});
@@ -137,8 +137,18 @@ class JwtRejectionStatusCodeIT {
         String expiredBody = getTicketsWithToken(expired).getBody();
         String tamperedBody = getTicketsWithToken(tampered).getBody();
 
-        assertThat(expiredBody).isEqualTo(missingBody);
-        assertThat(tamperedBody).isEqualTo(missingBody);
+        // `timestamp` is real wall-clock time (TimeSource.now()) and legitimately differs
+        // between separate HTTP calls — compare every OTHER field instead of the raw string.
+        assertThat(withoutTimestamp(expiredBody)).isEqualTo(withoutTimestamp(missingBody));
+        assertThat(withoutTimestamp(tamperedBody)).isEqualTo(withoutTimestamp(missingBody));
+    }
+
+    private String withoutTimestamp(String problemDetailJson) throws Exception {
+        com.fasterxml.jackson.databind.node.ObjectNode node =
+                (com.fasterxml.jackson.databind.node.ObjectNode)
+                        new com.fasterxml.jackson.databind.ObjectMapper().readTree(problemDetailJson);
+        node.remove("timestamp");
+        return node.toString();
     }
 
     @Test
