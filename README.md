@@ -137,7 +137,7 @@ repository, `EntityManager`, or service-bean access to compensate for anything l
 | **API-F2** | Lifecycle transition | No endpoint mutates `status`. `TicketStatusTransitions.allowedTargets()` has zero production callers — its only consumer is its own unit test. | A client can create tickets and read them but can never progress one. BR-A09 is fully implemented as domain logic and entirely unreachable over HTTP. | `PATCH /api/tickets/{id}/status`, validating against the existing transition map and returning 409 with `allowedTargets` in the ProblemDetail. |
 | **API-F3** | Abstention / sensitive-topic routing | `AutoAnswerGate` and `PreScreenMatcher` are wired as beans by `PreScreenConfig` but have **no production caller anywhere**. No code path writes a `triage_results` row, so `abstention_reason` is not merely unexposed — it is never produced. | A client cannot tell whether a ticket was withheld from auto-answer or why. Once auto-answer exists, "why did this not get answered" becomes a primary support question with no answer. | Call the gate from the A2 triage path, persist `TriageResult`, and expose `autoAnswered` plus the abstention reason on the ticket read model. |
 | **API-F4** | Failure recovery → fallback team | Reachable only after 3 failed attempts plus a reaper pass. Sweep, reaper, and orphan intervals are `fixedDelay = 60_000` **compile-time constants**, and the stale threshold is 15 minutes — none configurable. There is also no HTTP way to induce a triage failure, because there is no triage. | Operationally invisible: nothing external can confirm the fallback safety net works. It is only ever exercised by tests that call `sweepService.reap()` directly. | Promote the three intervals to `supportsense.ingestion.*` properties so a test profile can compress them, making the recovery path observable end-to-end. |
-| **API-F5** | Cross-team visibility setup | No endpoint lists teams or categories, and `RegisterRequest.teamId` silently ignores unknown ids (`findById(...).orElse(null)`). | A client integrating against the API cannot discover a valid `teamId` to register users against, and a wrong guess fails silently as a null team rather than an error. | Either a read-only `GET /api/teams`, or at minimum validate `teamId` and reject unknown values with 400 instead of ignoring them. *(Deliberately not built in A1 — recorded as a finding rather than adding product to satisfy a test.)* |
+| **API-F5** | Cross-team visibility setup | No endpoint lists teams or categories. `RegisterRequest.teamId` is now rejected outright with 400 (see Phase 6 security fix below) rather than silently accepted — so there is currently **no** HTTP path to a team-scoped account at all, not even an unreliable one. | A client integrating against the API cannot discover a valid `teamId`, and self-registration into a team is no longer possible by design. | A read-only `GET /api/teams`, plus an authenticated admin-only team-assignment action, both deferred to A2. *(Deliberately not built in A1 — recorded as a finding rather than adding product to satisfy a test.)* |
 | **API-F6** | CORS | `SecurityConfig` has no `.cors(...)` configuration and no `CorsConfigurationSource` bean. Spring Security's default is CORS disabled unless explicitly configured. | Harmless today (no browser client exists in A1), but any browser-based caller — including the Angular console due in A6 — will fail CORS preflight until this is configured. | Add an explicit `CorsConfigurationSource` scoped to the known console origin(s) before A6 begins. |
 | **API-F7** | Login rate limiting | No lockout, backoff, or attempt-count tracking on `POST /api/auth/login`. `DaoAuthenticationProvider` accepts unlimited attempts. | Reasonable expectation of any login endpoint; absence is a credential-stuffing exposure once the API is internet-reachable. Not a regression — this was never in A1 scope, found during the security config re-audit alongside the 401/403 fix below. | Rate-limit or exponential-backoff `POST /api/auth/login` per IP and/or per account. |
 
@@ -156,6 +156,21 @@ Bearer`) and `AccessDeniedHandler` (403), both returning the same RFC-7807 `Prob
 as `GlobalExceptionHandler`. Covered by `JwtRejectionStatusCodeIT`, including a same-body
 assertion across all four rejection modes so a differing body can't become a credential-probing
 oracle. Cross-team 404-not-403 and wrong-role 403 were re-verified unaffected by this change.
+
+### Fixed during Phase 6 security audit, not deferred
+
+**Unauthenticated self-registration allowed arbitrary `teamId` self-assignment.**
+`POST /api/auth/register` is `permitAll` and previously bound a client-supplied `teamId`
+directly onto the new user with no validation. Since `TicketSpecifications.visibleTo` grants
+an AGENT full read access to their team's ticket queue, any anonymous caller could self-assign
+into an arbitrary existing team and immediately inherit its visibility. Found by one of two
+independent blind security audits (the other missed it); verified against source, including a
+full sweep of every other request DTO for the same mass-assignment pattern (none found) and
+confirmation via full git history that no prior incident occurred. Fixed with a `@AssertTrue`
+constraint on `RegisterRequest` rejecting any non-null `teamId` with 400. Team assignment
+becomes an authenticated, admin-only action in A2 — tracked in
+[.github/artifactory/supportsense-a2-security-input.md](.github/artifactory/supportsense-a2-security-input.md).
+Covered by `RegistrationTeamAssignmentSecurityIT`.
 
 **Resolved during this phase, not deferred:** `POST /api/tickets` returned 202 while exposing
 no way to observe the accepted work's outcome — an incomplete contract independent of testing.

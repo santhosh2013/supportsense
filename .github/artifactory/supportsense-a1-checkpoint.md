@@ -1,8 +1,8 @@
 # Pipeline Checkpoint — supportsense-a1
 
 ## State
-- Phase completed: **4 (Code Review) — CLOSED, verdict APPROVE, CI green**
-- Next phase: **5 (E2E Testing)**
+- Phase completed: **6 (Security) — CLOSED, pending CI verification**
+- Next phase: **A2 Phase 1 (Requirements)**
 - Slug: `supportsense-a1`
 - Codebase: `c:\Users\ASANTH16\Downloads\Project1` (empty — greenfield)
 - Project type: Backend API (Spring Boot 3.3 / Java 21); Angular console deferred to A6
@@ -19,6 +19,10 @@
 - Execution plan: `.github/artifactory/supportsense-a1-execution-plan.md` (Approved, 7 batches)
 - Review summary: `.github/artifactory/supportsense-a1-review-summary.md` (APPROVE)
 - Review summary (alt-model): `.github/artifactory/supportsense-a1-review-summary-altmodel.md`
+- Test summary: `.github/artifactory/supportsense-a1-test-summary.md` (CI green, dual-model blind journey suite)
+- OpenAPI contract of record: `api/src/main/resources/openapi.yaml`
+- Security review: `.github/artifactory/supportsense-a1-security-review.md` (1 Medium finding fixed, dual-model blind audit)
+- A2 security requirements input: `.github/artifactory/supportsense-a2-security-input.md`
 
 ## Architecture
 **Approach C — feature-sliced modular monolith with a pure domain core**, ArchUnit-enforced.
@@ -140,3 +144,26 @@ None — OQ-1..OQ-4 resolved; FR-5/AC-6 delta amended into requirements.
 - Hard stops (never do): `@Disabled`/`@Ignore`; lower JaCoCo threshold or add exclusions to pass it; substitute H2/embedded DB for Testcontainers; delete/weaken an ArchUnit rule; edit an AC to match the code.
 - End-of-batch report format: batch name · business rules/ADRs touched · named test covering each · CI/local-test status · anything deferred.
 - **Process note for future batches:** local `mvn test` passing is necessary but not sufficient — `*IT.java` (Testcontainers) tests only prove out on a real CI run. Push after every batch and wait for the Actions result before treating a batch as done.
+
+## Phase 5: E2E Testing
+
+- **Mode:** dual-model blind black-box journey-layer suite (`e2e`/`e2ealt` packages), HTTP-only, no repository/EntityManager/bean access permitted or used.
+- **Scope narrowed deliberately, not by omission:** 4 of 6 originally-mandated journeys (triage→team→lifecycle happy path, true cross-team setup, abstention/sensitive-topic routing, fallback-team recovery) are genuinely unassertable black-box in A1 — no triage exists, no lifecycle endpoint exists, `AutoAnswerGate` has no production caller, and recovery needs a 15-min stale threshold plus hardcoded 60s scheduler intervals. Recorded as API-F1–F5 findings in README.md rather than worked around.
+- **One narrow production change made, justified independent of testing:** `ingestionState` added as a read-only field on `TicketResponse` — a 202 response with no way to observe the accepted work's outcome is an incomplete API contract on its own merits. Documented in the new `api/src/main/resources/openapi.yaml` (first committed OpenAPI spec — previously inferred-only) and covered by a contract-drift test in both suites. `GET /api/teams` explicitly NOT built (API-F5) per user instruction — no product changes to satisfy a test.
+- **Real defect found independently by both blind models, verified against source before acting:** every unauthenticated/invalid-credential request (missing/expired/tampered/`alg:none` token) returned 403 instead of 401 — `SecurityConfig` registered no `AuthenticationEntryPoint`/`AccessDeniedHandler`, so Spring Security's default applied uniformly to "no credentials" and "wrong role." Fixed with an explicit entry point (401) + access-denied handler (403) sharing one `SecurityResponseWriter`, both rendering the same `GlobalExceptionHandler` ProblemDetail shape. Regression-covered by `JwtRejectionStatusCodeIT`, including a same-body-across-failure-modes assertion (no credential-probing oracle). Full `SecurityConfig` re-audit also surfaced API-F6 (CORS unconfigured — harmless until A6) and API-F7 (no login rate-limiting — never in A1 scope).
+- **Two test bugs found on the first real CI run, both fixed — neither was a production regression:** (1) `allRejectionModesReturnIdenticalBodies` compared raw JSON including the real-wall-clock `timestamp` field — now strips it before comparing; (2) `TicketIdempotencyJourneyAltIT`'s concurrent-idempotency follow-up read used the creator's own AGENT token, which can never see its own untriaged team-less ticket (API-F1 surfacing as a test bug) — now uses the seeded ADMIN token. Swept both suites for the same pattern elsewhere; none found.
+- **Flake detection:** CI now runs the Failsafe suite twice per job, second run to a separate reports directory (`target/failsafe-reports-rerun`) so it never clobbers the primary JaCoCo merge or test-reporter input. No flake observed after the fixes.
+- **Phase 5 CLOSED: ✅ CI GREEN on GitHub Actions**, both blind suites plus the 401/403 regression test passing. Exact test totals for this specific green run were not captured from a pasted log; test summary records pass/fail status and content, not invented numbers.
+
+## Phase 6: Security
+
+- **Mode:** dual-model blind static/manual audit, same protocol as Phase 5 — no automated scanners, both models read source independently with no cross-visibility.
+- **Convergence:** both models reached near-identical verdicts on JWT/session security, `SecurityConfig` line-by-line, injection/data-exposure, and secrets/history — zero real secrets in working tree or full 23-commit git history, no SQL/JPQL injection anywhere, 401 body confirmed identical across all rejection modes (no credential-probing oracle), refresh-token family revocation confirmed irreversible.
+- **One material divergence, verified before acting:** Model A found a real authorization gap — unauthenticated `POST /api/auth/register` accepted a client-supplied `teamId` with no validation, letting any anonymous caller self-assign into an arbitrary team and inherit its ticket visibility via `TicketSpecifications.visibleTo`. Model B missed this entirely. Verified myself: confirmed `RegisterRequest` has no `role` field (no privilege-escalation path), swept every other request DTO for the same mass-assignment pattern (none found), confirmed via git history no prior incident occurred, and confirmed the narrow current blast radius (no A1 code assigns non-null teams except the orphan fallback) is an artifact of A1 lacking triage — not a property of the defect, since A2 triage would expose every ticket the moment it starts assigning teams.
+- **Fixed:** `RegisterRequest` gained a `@AssertTrue` constraint rejecting any non-null `teamId` with 400. Regression-tested by `RegistrationTeamAssignmentSecurityIT` (rejects with no user row created; null teamId still succeeds). `TicketApiSecurityIT`'s team-scoped test fixtures updated to assign team via SQL post-registration instead of the now-rejected field (re-login not needed — confirmed `TicketService` re-reads team membership from the DB per request, not from JWT claims).
+- **False positive caught and corrected:** Model B flagged missing `@Valid` on the bulk endpoint's request list. Verified against `BulkIngestionService.ingestItem()` — manual per-item validation is a deliberate Phase 4 design choice (so a malformed item produces REJECTED instead of failing the whole batch), not a gap. Removed from findings.
+- **Process note logged in the security review:** single-model coverage on the authorization surface is not sufficient — the one real gap was found by only one of two independent reviewers, and neither model's own severity assessment traced the actual current blast radius before rating it. Recorded as a review-method limitation, not just a code finding.
+- **All other findings Low/Informational**, correctly scoped: no rate-limiting on login (Medium, pre-existing, recorded as API-F7, not fixed this phase — genuinely unscoped for A1), no CORS config (Low, API-F6, immaterial until A6), no `iss`/`aud` claims (Low, immaterial until a second token-consuming service exists), no JWT clock-skew tolerance (Low), actuator role-restriction lacks an explicit guard test (Informational).
+- **A2 forward-looking security concerns recorded as requirements input** (not designed): prompt injection into the classifier via ticket body, customer PII crossing to a third-party model provider, unbounded LLM cost as a denial-of-wallet vector, untrusted model output being persisted/rendered. Written to `.github/artifactory/supportsense-a2-security-input.md` so A2 Phase 1 starts with these known rather than rediscovering them.
+- **Local verification:** `mvn clean test` ✅ 65/65. `*IT.java` (including the new `RegistrationTeamAssignmentSecurityIT` and the updated `TicketApiSecurityIT`) requires the next CI push — not yet verified on GitHub Actions.
+- **Phase 6 CLOSED pending CI**: security review, A1 close-out table (business rule → test, ADR list, deferred items), and A2 security input all written and verified. Merged coverage % not captured this phase (no log pasted) — consistent with project convention of not inventing numbers.

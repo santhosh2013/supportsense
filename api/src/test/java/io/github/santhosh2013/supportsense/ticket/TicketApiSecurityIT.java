@@ -132,10 +132,17 @@ class TicketApiSecurityIT {
     }
 
     private String registerAndGetAccessTokenForTeam(String email, long teamId) {
+        // Public self-registration can no longer set teamId directly (security fix —
+        // unauthenticated callers could otherwise pick any team and inherit its ticket
+        // visibility). A1 has no team-assignment endpoint yet, so tests assign the team
+        // via direct SQL after registering team-less. Unlike the role claim, team
+        // membership is NOT baked into the JWT — TicketService re-reads the User row by
+        // email on every request — so no re-login is needed for the new team to apply.
         ResponseEntity<AuthResponse> registerResponse = restTemplate.postForEntity(
                 url("/api/auth/register"),
-                new RegisterRequest(email, "correct-horse-battery-staple", "Test Agent", teamId),
+                new RegisterRequest(email, "correct-horse-battery-staple", "Test Agent", null),
                 AuthResponse.class);
+        new JdbcTemplate(dataSource).update("UPDATE users SET team_id = ? WHERE email = ?", teamId, email);
         return registerResponse.getBody().accessToken();
     }
 
