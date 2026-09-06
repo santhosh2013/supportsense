@@ -77,6 +77,7 @@ public class TicketService {
                 categoryId,
                 teamId,
                 assigneeId,
+                ticket.getIngestionState().name(),
                 ticket.getCreatedAt());
     }
 }

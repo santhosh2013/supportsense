@@ -78,6 +78,7 @@ public class TicketIngestionService {
                 categoryId,
                 teamId,
                 assigneeId,
+                ticket.getIngestionState().name(),
                 ticket.getCreatedAt());
     }
 }

@@ -1,8 +1,8 @@
 # Pipeline Checkpoint — supportsense-a1
 
 ## State
-- Phase completed: 4 (Code Review — dual-model review, all 3 Blockers fixed and CI-verified)
-- Next phase: 4 continued (6 Should-fix items, user disposition pending) → 5 (E2E Testing)
+- Phase completed: **4 (Code Review) — CLOSED, verdict APPROVE, CI green**
+- Next phase: **5 (E2E Testing)**
 - Slug: `supportsense-a1`
 - Codebase: `c:\Users\ASANTH16\Downloads\Project1` (empty — greenfield)
 - Project type: Backend API (Spring Boot 3.3 / Java 21); Angular console deferred to A6
@@ -17,6 +17,8 @@
 - Requirements: `.github/artifactory/supportsense-a1-requirements.md` (Approved, amended 2026-09-05)
 - Design: `.github/artifactory/supportsense-a1-design.md` (Approved)
 - Execution plan: `.github/artifactory/supportsense-a1-execution-plan.md` (Approved, 7 batches)
+- Review summary: `.github/artifactory/supportsense-a1-review-summary.md` (APPROVE)
+- Review summary (alt-model): `.github/artifactory/supportsense-a1-review-summary-altmodel.md`
 
 ## Architecture
 **Approach C — feature-sliced modular monolith with a pure domain core**, ArchUnit-enforced.
@@ -133,6 +135,8 @@ None — OQ-1..OQ-4 resolved; FR-5/AC-6 delta amended into requirements.
   6. Literal local/test fixture credentials intentionally deferred: README now tracks the A2 follow-up and its rationale (deterministic non-production fixtures; never deploy/reuse them).
 - **Additional correctness fix during remediation:** bulk item validation was initially performed by Spring MVC's `List<@Valid ...>` before the controller ran, making an in-batch `REJECTED` outcome unreachable for a malformed item. Extracted `BulkIngestionService` validates each item inside the loop. `TicketBulkIngestionIT` now verifies ACCEPTED + DUPLICATE + REJECTED together and a 501-item request gets 400 with zero writes.
 - **Local verification after remediation:** `mvn clean test` ✅ 65/65. The newly added full-context/Testcontainers tests (`TicketMethodSecurityIT`, `TicketDispatchRollbackIT`, updated `TicketBulkIngestionIT`) have not run locally because Docker is unavailable; CI is the required authority.
+- **Final CI failure found and fixed (2026-09-05):** `AuthFlowIT.seedProducesExpectedTaxonomy` asserted a bare `count(*) FROM users WHERE role='ADMIN' = 1`. Once `@EnableMethodSecurity` landed, `TicketMethodSecurityIT` legitimately promotes fixture users to `ADMIN`, so the count became order-dependent (expected 1, was 4). Fixed by asserting the **specific seeded bootstrap admin** (`admin@supportsense.local` with role `ADMIN`) exists — the actual seed invariant — rather than requiring it to remain the only `ADMIN` row in a database shared by every integration-test class. **This is the third occurrence of the shared-database bare-`count(*)` anti-pattern in this project** (Batch 4 teams, Batch 4 categories, now users); see the recurring-lesson section of the review summary.
+- **Phase 4 CLOSED: ✅ CI GREEN on GitHub Actions** — full Surefire + Failsafe suite and the JaCoCo merged-coverage gate (≥60%) all passed. Exact test totals and the precise merged coverage percentage were **not captured** from this run (user confirmed success without pasting the log), so no numbers are recorded here rather than inventing them. Re-run CI and capture the JaCoCo summary + Surefire/Failsafe totals if exact figures are needed for a resume metric (sheet 16).
 - Hard stops (never do): `@Disabled`/`@Ignore`; lower JaCoCo threshold or add exclusions to pass it; substitute H2/embedded DB for Testcontainers; delete/weaken an ArchUnit rule; edit an AC to match the code.
 - End-of-batch report format: batch name · business rules/ADRs touched · named test covering each · CI/local-test status · anything deferred.
 - **Process note for future batches:** local `mvn test` passing is necessary but not sufficient — `*IT.java` (Testcontainers) tests only prove out on a real CI run. Push after every batch and wait for the Actions result before treating a batch as done.

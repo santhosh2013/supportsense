@@ -14,4 +14,7 @@ public record TicketResponse(
         Long categoryId,
         Long teamId,
         Long assigneeId,
+        // Read-only. POST returns 202, so a client needs some way to observe whether the
+        // accepted work finished. Deliberately excludes attemptCount/claimedAt/ingestionError.
+        String ingestionState,
         Instant createdAt) {}

@@ -54,6 +54,26 @@ jobs:
         working-directory: api
         run: ./mvnw --batch-mode jacoco:check@check-merged
 
+      # Re-runs *IT.java into a separate reports directory (never touching
+      # target/failsafe-reports or jacoco-merged.exec from the run above) purely to catch
+      # order-dependence/flakiness in the integration suite. failsafe:verify fails the job
+      # if this second run has any failure the first run didn't.
+      - name: Re-run integration tests (flake detection)
+        working-directory: api
+        run: |
+          ./mvnw --batch-mode failsafe:integration-test \
+            -Dfailsafe.reportsDirectory=target/failsafe-reports-rerun
+          ./mvnw --batch-mode failsafe:verify \
+            -Dfailsafe.summaryFiles=target/failsafe-reports-rerun/failsafe-summary.xml
+
+      - name: Upload flake-detection report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failsafe-rerun-report
+          path: api/target/failsafe-reports-rerun/
+          if-no-files-found: ignore
+
       - name: Publish test report
         if: always()
         uses: dorny/test-reporter@v1

@@ -1,0 +1,373 @@
+openapi: 3.0.3
+
+# Contract of record for the SupportSense A1 HTTP surface.
+#
+# This file is hand-maintained and is the AUTHORITY. `OpenApiContractDriftIT` fetches the
+# springdoc-generated spec from /v3/api-docs at runtime and fails if the two disagree —
+# in either direction. An endpoint implemented but not documented here is drift; an
+# endpoint documented here but not implemented is also drift.
+
+info:
+  title: SupportSense API
+  version: 0.1.0-SNAPSHOT
+  description: >
+    AI-powered support ticket triage and resolution engine. Milestone A1 covers
+    authentication, ticket ingestion (asynchronous, persist-first), and team-scoped
+    read visibility. Triage, auto-answer, and lifecycle transitions land in A2+.
+
+servers:
+  - url: /
+    description: Same-origin
+
+tags:
+  - name: auth
+    description: Registration, login, refresh-token rotation
+  - name: tickets
+    description: Ticket ingestion and team-scoped reads
+
+paths:
+  /api/auth/register:
+    post:
+      tags: [auth]
+      summary: Register a new user
+      description: >
+        Always creates an AGENT. Role is not settable via the API in A1. An unknown
+        `teamId` is silently ignored and results in a user with no team.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '409':
+          description: Email already registered
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetail' }
+
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: Exchange credentials for an access + refresh token pair
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Rotate a refresh token
+      description: >
+        Refresh tokens are single-use. Presenting a token that has already been rotated
+        is treated as theft and revokes the entire token family.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/auth/me:
+    get:
+      tags: [auth]
+      summary: The authenticated principal
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/tickets:
+    post:
+      tags: [tickets]
+      summary: Ingest a ticket
+      description: >
+        Persist-first. The row is committed synchronously and processing is dispatched
+        after commit, so 202 means durably accepted, not processed. Poll the ticket's
+        `ingestionState` to observe completion. Idempotent on `externalRef`: re-posting
+        an existing ref returns 200 with the original ticket rather than an error.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTicketRequest' }
+      responses:
+        '200':
+          description: Duplicate `externalRef` — the existing ticket is returned unchanged
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TicketResponse' }
+        '202':
+          description: Accepted and durably persisted; processing happens asynchronously
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TicketResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    get:
+      tags: [tickets]
+      summary: List tickets visible to the caller
+      description: >
+        Team-scoped. AGENTs see only triaged tickets belonging to their own team;
+        LEAD and ADMIN see all. `size` is clamped to 100.
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema: { type: integer, format: int32, default: 0 }
+        - name: size
+          in: query
+          required: false
+          schema: { type: integer, format: int32, default: 20 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PageTicketResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/tickets/bulk:
+    post:
+      tags: [tickets]
+      summary: Ingest up to 500 tickets, each independently
+      description: >
+        Requires ADMIN or SERVICE. Per-item outcomes are returned rather than failing the
+        whole batch — one invalid item does not reject its neighbours. A batch larger than
+        500 is rejected outright with 400 and writes nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { $ref: '#/components/schemas/CreateTicketRequest' }
+      responses:
+        '202':
+          description: Batch processed; inspect per-item outcomes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BulkIngestResponse' }
+        '400':
+          description: Batch exceeds the 500-item maximum; nothing was written
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/tickets/{id}:
+    get:
+      tags: [tickets]
+      summary: Fetch a single visible ticket
+      description: >
+        Returns 404 — never 403 — when the ticket exists but is not visible to the caller.
+        Existence itself must not leak across teams (ADR-0006).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TicketResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: Not found, or found but not visible to this caller
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetail' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: Missing, malformed, expired, or forged credentials
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+    Forbidden:
+      description: Authenticated but lacking the required role
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+    ValidationFailed:
+      description: Request body failed validation
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password, fullName]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8, maxLength: 128 }
+        fullName: { type: string }
+        teamId: { type: integer, format: int64, nullable: true }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string }
+        password: { type: string }
+
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string }
+
+    AuthResponse:
+      type: object
+      properties:
+        accessToken: { type: string, description: 'JWT, HS256, 15-minute TTL' }
+        refreshToken: { type: string, description: 'Opaque, single-use, 7-day TTL' }
+        user: { $ref: '#/components/schemas/UserResponse' }
+
+    UserResponse:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        email: { type: string }
+        fullName: { type: string }
+        role: { type: string, enum: [AGENT, LEAD, ADMIN, SERVICE] }
+        teamId: { type: integer, format: int64, nullable: true }
+
+    CreateTicketRequest:
+      type: object
+      required: [externalRef, subject, body, channel, customerEmail]
+      properties:
+        externalRef:
+          type: string
+          description: Caller-supplied idempotency key; globally unique
+        subject: { type: string }
+        body: { type: string }
+        channel: { type: string, enum: [EMAIL, WEB, CHAT, API] }
+        customerEmail: { type: string, format: email }
+        customerTier:
+          type: string
+          enum: [FREE, PRO, ENTERPRISE]
+          nullable: true
+          description: Defaults to FREE when omitted
+
+    TicketResponse:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        externalRef: { type: string }
+        subject: { type: string }
+        channel: { type: string, enum: [EMAIL, WEB, CHAT, API] }
+        customerEmail: { type: string }
+        customerTier: { type: string, enum: [FREE, PRO, ENTERPRISE] }
+        status:
+          type: string
+          enum: [NEW, TRIAGED, IN_PROGRESS, PENDING_CUSTOMER, RESOLVED, CLOSED, DUPLICATE]
+        priority:
+          type: string
+          enum: [P1, P2, P3, P4]
+          nullable: true
+          description: Assigned by triage; null until then
+        categoryId: { type: integer, format: int64, nullable: true }
+        teamId: { type: integer, format: int64, nullable: true }
+        assigneeId: { type: integer, format: int64, nullable: true }
+        ingestionState:
+          type: string
+          enum: [PENDING, PROCESSING, DONE, FAILED]
+          description: >
+            Read-only progress of the asynchronous work accepted by the 202 response.
+            PENDING = queued, PROCESSING = claimed by a worker, DONE = finished,
+            FAILED = exhausted its retry budget and was routed to the fallback team.
+            Internal retry bookkeeping (attempt count, claim timestamp, error text) is
+            deliberately not exposed.
+        createdAt: { type: string, format: date-time }
+
+    BulkIngestResponse:
+      type: object
+      properties:
+        accepted: { type: integer, format: int32 }
+        duplicates: { type: integer, format: int32 }
+        rejected: { type: integer, format: int32 }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/BulkIngestItemResult' }
+
+    BulkIngestItemResult:
+      type: object
+      properties:
+        index: { type: integer, format: int32, description: 0-based index in the request array }
+        externalRef: { type: string, nullable: true }
+        outcome: { type: string, enum: [ACCEPTED, DUPLICATE, REJECTED] }
+        ticketId: { type: integer, format: int64, nullable: true }
+        error: { type: string, nullable: true, description: Present only when outcome is REJECTED }
+
+    PageTicketResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/TicketResponse' }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer, format: int32 }
+        number: { type: integer, format: int32 }
+        size: { type: integer, format: int32 }
+        first: { type: boolean }
+        last: { type: boolean }
+        numberOfElements: { type: integer, format: int32 }
+        empty: { type: boolean }
+
+    ProblemDetail:
+      type: object
+      description: RFC 7807
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer, format: int32 }
+        detail: { type: string }
+        timestamp: { type: string, format: date-time }
+        errors:
+          type: object
+          nullable: true
+          additionalProperties: { type: string }
+          description: Field-to-message map; present only on validation failures
+
+security:
+  - bearerAuth: []
